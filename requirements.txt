@@ -1,3 +1,7 @@
+# Tested runtime (installed separately, not by pip):
+# Python 3.13.5 (.venv/bin/python; Jupyter kernel: Python 3 (ipykernel))
+# Java 17.0.20 (OpenJDK; required by PySpark)
+
 # Runtime and notebook dependencies for download_data.py and project_analysis.ipynb.
 # Pandas remains below 3.0 because PySpark 4.2 does not yet fully support 3.x.
 jupyterlab==4.6.2
