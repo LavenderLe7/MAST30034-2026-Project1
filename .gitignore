@@ -1,0 +1,39 @@
+# Local environment and machine-generated files
+.venv/
+.DS_Store
+.Rhistory
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.ruff_cache/
+sample_solutions/
+
+# Raw and generated datasets
+data/raw/
+data/standardized/
+data/curated/
+data/reference/hrrr_borough_grid_points.csv
+
+# Local Spark state
+spark-warehouse/
+metastore_db/
+derby.log
+*.crc
+
+# Temporary files
+tmp/
+cache/
+
+# LaTeX build files; keep source and final PDF trackable
+report/**/*.aux
+report/**/*.bbl
+report/**/*.bcf
+report/**/*.blg
+report/**/*.fdb_latexmk
+report/**/*.fls
+report/**/*.log
+report/**/*.out
+report/**/*.run.xml
+report/**/*.synctex.gz
+report/**/*.toc
+report/**/*-SAVE-ERROR

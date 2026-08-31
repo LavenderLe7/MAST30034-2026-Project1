@@ -1,0 +1,12 @@
+date,year,day_of_week,holiday_name,holiday_scope,applies_to_nyc,source_url,notes
+2025-01-01,2025,Wednesday,New Year's Day,US federal holiday,1,https://www.opm.gov/policy-data-oversight/pay-leave/federal-holidays/#url=2025,
+2025-01-20,2025,Monday,"Birthday of Martin Luther King, Jr.",US federal holiday,1,https://www.opm.gov/policy-data-oversight/pay-leave/federal-holidays/#url=2025,"OPM also lists Inauguration Day on this date for the Washington, DC area only; it is not included as a separate NYC holiday."
+2025-02-17,2025,Monday,Washington's Birthday,US federal holiday,1,https://www.opm.gov/policy-data-oversight/pay-leave/federal-holidays/#url=2025,
+2025-05-26,2025,Monday,Memorial Day,US federal holiday,1,https://www.opm.gov/policy-data-oversight/pay-leave/federal-holidays/#url=2025,
+2025-06-19,2025,Thursday,Juneteenth National Independence Day,US federal holiday,1,https://www.opm.gov/policy-data-oversight/pay-leave/federal-holidays/#url=2025,
+2025-07-04,2025,Friday,Independence Day,US federal holiday,1,https://www.opm.gov/policy-data-oversight/pay-leave/federal-holidays/#url=2025,
+2025-09-01,2025,Monday,Labor Day,US federal holiday,1,https://www.opm.gov/policy-data-oversight/pay-leave/federal-holidays/#url=2025,
+2025-10-13,2025,Monday,Columbus Day,US federal holiday,1,https://www.opm.gov/policy-data-oversight/pay-leave/federal-holidays/#url=2025,
+2025-11-11,2025,Tuesday,Veterans Day,US federal holiday,1,https://www.opm.gov/policy-data-oversight/pay-leave/federal-holidays/#url=2025,
+2025-11-27,2025,Thursday,Thanksgiving Day,US federal holiday,1,https://www.opm.gov/policy-data-oversight/pay-leave/federal-holidays/#url=2025,
+2025-12-25,2025,Thursday,Christmas Day,US federal holiday,1,https://www.opm.gov/policy-data-oversight/pay-leave/federal-holidays/#url=2025,
