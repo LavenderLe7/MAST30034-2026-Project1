@@ -1,4 +1,4 @@
-"""Download the raw datasets required by ``project_analysis.ipynb``."""
+"""Download the raw datasets required by ``notebooks/01_data_preprocessing.ipynb``."""
 
 from pathlib import Path
 from zipfile import ZipFile
