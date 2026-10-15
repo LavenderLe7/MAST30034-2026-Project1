@@ -1,0 +1,560 @@
+% Setup - do not change
+\documentclass[11pt]{article}
+\usepackage[top=0.9in, left=0.9in, bottom=0.9in, right=0.9in]{geometry} 
+\usepackage{parskip}
+
+\usepackage[english]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amsthm,amssymb,graphicx,pdfpages,lipsum,hyperref}
+\usepackage[none]{hyphenat}
+\usepackage{csquotes}
+\usepackage{booktabs,tabularx}
+\usepackage{placeins}
+
+\setlength\parindent{0pt}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% add other packages here if required
+\hypersetup{hidelinks}
+
+%% Bibliography are specified in this file. You can also choose inline bib style if you want to. But make sure your citation style is consistent (and proper)
+% For more details on citation: https://library.unimelb.edu.au/recite
+\usepackage[sorting = none]{biblatex}
+\addbibresource{references.bib}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% the '%' symbol denotes comments
+
+% Begin document creation
+% DELETE THE \lipsum PLACEHOLDERS WHEN YOU BEGIN
+\title{\textbf{Forecasting Borough-Level Late-Arrival Share for Completed
+WAV-Requested HVFHV Trips in New York City}}
+\author{
+Jiale Xu \\
+Student ID: 1600983 \\
+%% Replace the link with your github repo
+% 1. Remember to escape underscore (\_) in the link.
+% 2. Remember to include the commit you want to submit in the link
+\href{https://github.com/MAST30034-AppliedDataScience/project-1-individual-LavenderLe7/tree/984b3928c6646017ebeeac3b41c1e6479c681964}{Github repo with commit}
+}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+Timely arrival matters to passengers who rely on wheelchair-accessible vehicle (WAV) service.
+Late arrivals are also a service-quality concern for platforms whose licensed bases are
+required under New York City Taxi and Limousine Commission (TLC) rules to provide equivalent
+service to passengers requesting WAVs \cite{nyctlc_fhv_accessibility_base}. At the start of
+each four-hour period, only information then available is used to forecast late share for
+each pickup borough over the next four hours. The study defines a trip as late when the
+vehicle arrives more than 10 minutes after the requested pickup time; late share is the
+proportion of completed WAV-requested high-volume for-hire vehicle (HVFHV) trips classified
+as late. The forecasts are intended to help operations and
+dispatch teams at high-volume for-hire service (HVFHS) platforms prioritise borough-periods
+for human review. The forecasts apply only to completed WAV-requested
+trips and do not estimate regulatory compliance or profitability.
+
+The study uses TLC HVFHV Trip Record Data from April to December 2025, spanning spring to
+early winter, with later months for chronological evaluation. These records provide
+the WAV-request and timing information needed to construct the target. Federal holidays
+provide calendar context known in advance; Central Park Local Climatological Data
+(LCD) observations describe realised weather retrospectively, while archived
+High-Resolution Rapid Refresh (HRRR) forecasts provide formal issue-time weather predictors.
+The analysis first characterises temporal and spatial late-share
+patterns, then evaluates whether a grouped binomial generalised linear model (GLM) and
+weighted XGBoost forecast late share more accurately than a matured 24-hour history
+benchmark. Both models use the same issue-time information set, comprising location and time,
+calendar context, mature service history and HRRR inputs. The design applies a four-hour outcome-maturity
+buffer and conservatively assumes that HRRR runs become available three hours after initialisation.
+
+% You can have \section{}, \subsection{}, and \subsubsection{}, \section*{}, \subsection*{}, and \subsubsection*{}
+\section{Datasets}
+Nine monthly TLC HVFHV Trip Record Data files \cite{nyctlc_trip_records}
+covering April--December 2025 are the primary trip-level source. The WAV request flag
+identifies WAV-requested trips; \texttt{request\_datetime} records the requested pickup time;
+\texttt{on\_scene\_datetime} records arrival at the pickup location;
+\texttt{pickup\_datetime} records trip pickup; and \texttt{PULocationID}
+supplies the pickup Taxi Zone \cite{nyctlc_hvfhv_dictionary}. A non-missing
+pickup timestamp was used to establish completion, and these five fields
+support target construction and borough assignment.
+
+To complement the TLC records, the full-year NOAA Local Climatological Data
+(LCD) file for the NY City Central Park station (USW00094728) provides realised
+temperature, wind, visibility and precipitation for retrospective descriptive
+analysis \cite{noaa_lcd}. Formal weather inputs instead come from archived NOAA
+HRRR forecasts accessed through dynamical.org \cite{dynamical_hrrr}. NOAA/NCEP
+documents the CONUS HRRR at 3-km resolution, with 48-hour forecasts for the
+00/06/12/18 UTC cycles \cite{noaa_hrrr}.
+
+The U.S. Office of Personnel Management's 2025 Federal Holidays
+\cite{opm_holidays} provide known-in-advance calendar context; eight of 11
+NYC-applicable dates fall within the study interval. The TLC Taxi Zone lookup
+and shapefile \cite{nyctlc_taxi_zones} support borough assignment, mapping and
+selection of the representative HRRR points, but are not separate analytical
+datasets. Table~\ref{tab:data_sources} lists the input shapes of the main
+analytical sources; the HRRR entry is the standardised local subset rather than
+the full remote archive.
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \renewcommand{\arraystretch}{1.08}
+    \begin{tabularx}{\textwidth}{@{}
+        >{\raggedright\arraybackslash}p{0.52\textwidth}
+        >{\centering\arraybackslash}p{0.25\textwidth}
+        >{\centering\arraybackslash}X@{}}
+        \toprule
+        \textbf{Dataset} &
+        \textbf{Instances} &
+        \textbf{No. Fields} \\
+        \midrule
+        TLC HVFHV Trip Record Data
+            & 183,307,678 trip records
+            & 25 \\
+        NOAA Local Climatological Data (LCD)
+            & 11,401 station reports
+            & 125 \\
+        Archived NOAA HRRR borough-point subset
+            & 270,970 forecast rows
+            & 15 \\
+        2025 Federal Holiday Calendar
+            & 11 holiday dates
+            & 8 \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Input shapes of the TLC and external datasets used in the study.}
+    \label{tab:data_sources}
+\end{table}
+\FloatBarrier
+
+\section{Preprocessing}
+\textbf{TLC trips and target construction.}
+Using the five TLC fields described above, the nine monthly files were filtered
+cumulatively as follows:
+
+\begin{itemize}
+    \setlength\itemsep{0pt}
+    \setlength\parskip{0pt}
+    \setlength\parsep{0pt}
+    \item \textbf{WAV scope:} 543,349 of the 183,307,678 input records reported
+    that the passenger requested a WAV.
+    \item \textbf{Timestamps:} 543,349 records were retained; none lacked a
+    request, arrival or pickup timestamp.
+    \item \textbf{Study interval:} 543,347 requested pickups fell within April--
+    December 2025 (2 excluded).
+    \item \textbf{Pickup geography:} 543,305 records mapped through the TLC
+    Taxi Zone lookup to a valid pickup zone in one of the five boroughs; 42
+    records that did not map were excluded \cite{nyctlc_taxi_zones}.
+\end{itemize}
+
+For trips with non-missing \texttt{pickup\_datetime}, define
+\begingroup
+\setlength{\abovedisplayskip}{4pt}
+\setlength{\belowdisplayskip}{4pt}
+\begin{equation*}
+    \begin{gathered}
+        \mathrm{arrival\_offset}_i
+            = \texttt{on\_scene\_datetime}_i
+            - \texttt{request\_datetime}_i
+            \quad \text{(minutes)}, \\
+        \texttt{late\_10}_i
+            = \mathbf{1}\{\mathrm{arrival\_offset}_i > 10\}.
+    \end{gathered}
+\end{equation*}
+\endgroup
+The TLC Data Dictionary defines \texttt{request\_datetime} as the time the
+passenger requested to be picked up; therefore, it was treated as requested
+pickup time, not app-submission time \cite{nyctlc_hvfhv_dictionary}.
+Negative offsets represented early arrivals, while large positive offsets
+remained observed outcomes; neither group was trimmed.
+
+For pickup borough \(b\) and four-hour period \(t\), the forecasting target was
+\begingroup
+\setlength{\abovedisplayskip}{2pt}
+\setlength{\belowdisplayskip}{2pt}
+\begin{equation*}
+    \mathrm{late\_share}_{b,t}
+        = \frac{\mathrm{late\_trip\_count}_{b,t}}
+        {\mathrm{wav\_request\_count}_{b,t}},
+        \qquad \mathrm{wav\_request\_count}_{b,t} > 0.
+\end{equation*}
+\endgroup
+
+\textbf{External data.}
+The high-level processing steps were:
+
+\begin{itemize}
+    \setlength\itemsep{0pt}
+    \setlength\parskip{0pt}
+    \setlength\parsep{0pt}
+    \item \textbf{Observed LCD:} Eight fields were loaded. Of the 11,401 input
+    reports, 11,024 routine FM-15 and FM-16 surface observations were retained,
+    while daily and monthly summaries were excluded
+    \cite{noaa_surface_report_types}. NOAA records LCD times in local standard
+    time \cite{noaa_lcd_documentation}; conversion to New York civil time left
+    8,260 study-period reports. Hourly observations were consolidated using median
+    temperature, maximum wind, minimum visibility and event indicators. These hourly
+    values were then aggregated into 1,650 four-hour summaries using the corresponding
+    mean, extreme and event measures. Missing hours were not imputed, and 1,606 periods
+    had complete hourly coverage.
+    \item \textbf{Archived HRRR:} The nearest forecast grid point to each
+    projected borough centroid was fixed. From the standardised 270,970-row
+    archive subset \cite{dynamical_hrrr}, issue-time-eligible valid times inside
+    each target period produced one complete six-feature forecast row for all
+    8,250 borough-periods; no imputation was required.
+    \item \textbf{Calendar and geography:} The Taxi Zone lookup
+    \cite{nyctlc_taxi_zones} assigned borough labels and supplied polygons for
+    spatial analysis and HRRR point selection. OPM holidays within the study
+    interval \cite{opm_holidays} marked all corresponding four-hour periods.
+\end{itemize}
+
+\textbf{Panel construction.}
+WAV outcomes, citywide request counts and descriptive LCD summaries were
+left-joined to the complete 8,250-row grid of 1,650 periods by five boroughs.
+Zero-request periods retained an undefined late share, not zero lateness. The
+April--October target covered 6,172 of 6,420 rows (96.14\%). No source join
+removed a grid row: the base panel contained 8,250 rows and 36 fields, and
+the six HRRR summaries were joined one-to-one to form the 42-field modelling
+panel.
+
+Forecast-time predictors excluded contemporaneous requests and outcomes, as
+well as realised LCD weather; the modelling section specifies historical
+maturity and HRRR issue-time eligibility.
+
+\section{Analysis and Geospatial Visualisation}
+Exploratory analysis was restricted to April through October, with November and
+December reserved for chronological evaluation. The development sample comprised
+428,633 completed WAV-requested trips across the complete 6,420-row
+borough-period grid, with a pooled late share of 9.42\%.
+
+\subsection{Distribution and temporal structure}
+Arrival offsets were asymmetric: the median was 4.30 minutes and the 95th
+percentile was 12.18 minutes, while 19.35\% were negative. Only 24 trips
+exceeded 60 minutes, although the maximum was 212.4 minutes; these rare extremes
+were retained as observed outcomes. Zero-request cells retained an undefined
+late share rather than being imputed.
+
+Monthly completed-request volume remained within 57,857--64,300, whereas late
+share peaked at 13.64\% in June and fell to 5.57\% in October. This divergence
+between broadly similar support and changing risk motivates chronological
+evaluation and explicit temporal context.
+
+Figure~\ref{fig:borough_time_risk} shows that time-of-day patterns were
+borough-specific rather than a common citywide cycle. The Bronx late share
+peaked at 16.2\% from 04:00--07:59, whereas Queens peaked at 21.3\% from
+20:00--23:59 on 10,062 requests. Staten Island's rates ranged from 12.4\%
+to 18.8\% on only 112--2,753 requests per time block;
+the borough also contained all 248 zero-request periods. These patterns
+motivate representing borough--time context jointly and accounting for request
+support in model fitting and evaluation, since rates based on small denominators
+may be unstable.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.97\textwidth]{../../outputs/figures/wav_borough_time_risk.pdf}
+    \caption{Late-arrival share and completed WAV-request volume by borough and time block.}
+    \label{fig:borough_time_risk}
+\end{figure}
+
+\FloatBarrier
+
+\subsection{Geospatial and observed-weather evidence}
+Figure~\ref{fig:zone_risk} reveals Taxi Zone-level late-share heterogeneity
+that borough aggregation would otherwise smooth over, while separating spatial
+risk from request support. The late-share panel displays only 241 of the 262
+zones meeting the 100-request rule; together, these zones represented 99.85\% of development
+requests. JFK Airport had both the largest support (8,355 requests) and the
+highest late share among displayed zones (44.15\%). Therefore, it is a
+high-support, high-risk
+hotspot rather than an unstable rate driven by a very small denominator. The
+remaining zones are masked to avoid ranking poorly supported rates. This map
+is descriptive; the formal forecasting unit remains the
+borough by four-hour period.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.97\textwidth]{../../outputs/figures/wav_taxi_zone_support_and_risk.pdf}
+    \caption{Development-period completed WAV-request support and late share by
+    Taxi Zone.}
+    \label{fig:zone_risk}
+\end{figure}
+
+\FloatBarrier
+
+Among borough-periods with observed targets and complete LCD hourly coverage,
+the study-defined adverse-weather flag (any precipitation, minimum visibility
+below 5 km, or maximum wind speed at least 10 m/s) had an 11.64\% late share
+across 80,424 requests, compared with 8.96\% across 336,180 requests in other
+periods. The 2.68 percentage-point difference is an unadjusted association based
+on realised Central Park observations used as a citywide proxy. It neither
+identifies a causal weather effect nor establishes that forecast weather improves
+prediction. Because realised target-period LCD observations would not be
+available at forecast issue, LCD variables are excluded from the model
+predictors.
+
+The observed borough-time heterogeneity and month-to-month variation motivate a
+chronological forecasting design. Therefore, the models test whether calendar and location
+context and mature service history predict late share, and whether issue-time
+HRRR adds value beyond them under chronological evaluation.
+
+\FloatBarrier
+
+\section{Modelling}
+\subsection{Forecast Design and Feature Engineering}
+\begin{sloppypar}
+For each borough \(b\) and target period \(t\), both predictive models estimated
+\(\widehat p_{b,t}\), the forecast late share during the four hours beginning at issue
+time. Historical risk over an eligible set of source periods \(W\) was pooled as
+\begin{equation*}
+    r_b(W)=\frac{\sum_{s\in W}L_{b,s}}{\sum_{s\in W}N_{b,s}},
+\end{equation*}
+where \(L_{b,s}\) and \(N_{b,s}\) denote late\hyp trip and completed\hyp request counts.
+Historical aggregates used completed\hyp trip periods ending at least four hours earlier,
+so the most recent eligible period was lag 2. Four such features captured different
+temporal scales: lag-2 risk, matured 24-hour and seven-day histories, and an expanding
+same-slot history for the same borough, weekday and time block. Count pooling prevented
+sparse source periods from receiving equal weight. A development-period audit found a
+maximum request-to-completion delay of 212.4 minutes, below the 240-minute maturity
+buffer.
+\end{sloppypar}
+
+Calendar predictors captured weekday, holiday, time block, linear trend and smooth
+annual seasonality. Log-transformed lag-2 borough demand, matured 24-hour borough
+demand and lag-2 citywide demand represented recent request volume.
+
+The latest HRRR run was eligible only if \(\text{initialisation time}+3\text{ hours}\leq\text{issue time}\).
+The latest eligible run was fixed for the target period and summarised into mean temperature, mean
+relative humidity, total precipitation, any rain, mean wind speed and maximum wind
+gust. Current-period information, realised LCD observations and later HRRR runs were
+excluded. Indicators distinguished unavailable historical risk features from observed
+zero risk.
+
+Models were fitted on April--August, validated on September--October, then refitted on
+April--October and evaluated with fixed parameters on November--December. At every
+issue time, predictors excluded the target period, and earlier outcomes entered
+subsequent histories only after satisfying the maturity rule. Preprocessing parameters
+were estimated from fitting data only. The primary metric was request-weighted MAE in
+percentage points; secondary diagnostics comprised RMSE, calibration assessments and
+expanding monthly backtests.
+
+\subsection{Matured 24-Hour History Benchmark}
+The matured 24-hour pooled rate---the count-weighted late share across source
+periods \(t-7,\ldots,t-2\)---was the benchmark, with training-period borough
+and then global fallbacks. It was a transparent comparator and potential
+fallback; GLM and XGBoost were the predictive models.
+
+\subsection{Grouped Binomial GLM}
+As a denominator-aware, interpretable specification, a binomial GLM modelled
+grouped late and on-time counts \cite{mast30027_binomial_regression}:
+\begingroup
+\setlength{\abovedisplayskip}{2pt}
+\setlength{\belowdisplayskip}{2pt}
+\begin{equation*}
+\begin{aligned}
+    L_{b,t}\mid N_{b,t} &\sim
+        \operatorname{Binomial}(N_{b,t},p_{b,t}),\\
+    \operatorname{logit}(p_{b,t})
+        &=\beta_0
+          +\beta^{(\text{borough}\times\text{time block})}_{b,h(t)}\\
+        &\quad+\beta^{(\mathrm{weekday})}_{w(t)}
+          +\beta_{\mathrm{holiday}}\,
+          \mathbf{1}\!\left\{\operatorname{date}(t)\in\mathcal H\right\}
+          +\boldsymbol{x}_{b,t}^{\mathsf T}\boldsymbol{\beta}_x.
+\end{aligned}
+\end{equation*}
+\endgroup
+Here \(p_{b,t}\) is the conditional expected late share; \(h(t)\), \(w(t)\) and
+\(\mathcal H\) denote time block, weekday and holiday dates; and
+\(\boldsymbol{x}_{b,t}\) contains the retained standardised non-categorical
+predictors. Reference coding represented joint borough--time-block and weekday
+effects. Target-period \(N_{b,t}\) entered the grouped response, not the forecast
+inputs. The model assumed a common conditional late probability within each
+borough-period and additive log-odds effects; coefficients were conditional
+associations, not causal effects.
+
+\subsection{Weighted XGBoost}
+As a flexible contrast, XGBoost used the same issue-time information set but
+represented borough and time block separately. It fitted \(L_{b,t}/N_{b,t}\),
+with the contemporaneous \(N_{b,t}\) weighting the loss rather than entering as
+a forecast input. Its logistic objective bounded forecasts to the unit interval,
+while regularised depth-two trees captured nonlinearities and interactions
+\cite{chen_guestrin_xgboost}; chronological validation selected the tree count
+before refitting. Unlike the GLM, it imposed no additive mean structure. Both
+models relied on sufficiently stable predictor--outcome relationships and on the
+continued validity of the maturity and HRRR availability assumptions.
+
+\section{Results and Discussion}
+\subsection{Predictive Value Beyond Mature History}
+In the November--December evaluation, both learned models provided modest
+average predictive value beyond mature history, but gains were uneven.
+Table~\ref{tab:model_comparison} shows that weighted XGBoost had the lowest MAE,
+2.589 percentage points---12.4\% below the benchmark. Evaluation RMSE preserved
+the ordering, so this lead was not specific to MAE. Because the GLM and XGBoost
+shared the issue-time information set, XGBoost's further gain is consistent with
+its more flexible nonlinear and interaction structure rather than access to
+different feature families.
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \renewcommand{\arraystretch}{1.08}
+    \begin{tabularx}{\textwidth}{@{}
+        >{\raggedright\arraybackslash}p{0.27\textwidth}
+        >{\centering\arraybackslash}p{0.13\textwidth}
+        >{\centering\arraybackslash}p{0.13\textwidth}
+        >{\centering\arraybackslash}p{0.13\textwidth}
+        >{\centering\arraybackslash}X@{}}
+        \toprule
+        \textbf{Method} &
+        \textbf{Validation MAE (pp)} &
+        \textbf{Evaluation MAE (pp)} &
+        \textbf{Evaluation RMSE (pp)} &
+        \textbf{Evaluation calibration gap (pp)} \\
+        \midrule
+        Matured 24-hour history & 2.968 & 2.955 & 4.130 & -0.010 \\
+        Grouped Binomial GLM & 2.607 & 2.776 & 3.928 & +0.445 \\
+        Weighted XGBoost & \textbf{2.550} & \textbf{2.589} &
+            \textbf{3.716} & +0.045 \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Request-weighted predictive performance on the validation and evaluation
+    sets. Evaluation comprised 1,731 scored borough-periods and 114,672 completed 
+    WAV-requested trips. Calibration gap is predicted minus observed request-weighted
+    late share.}
+    \label{tab:model_comparison}
+\end{table}
+
+Although adverse observed weather was associated with higher late share, the
+HRRR ablation showed that incremental forecast value varied between validation
+and evaluation: refitting XGBoost without the six HRRR summaries lowered
+validation MAE from 2.550 to 2.508 but raised evaluation MAE from 2.589 to 2.664.
+In validation, permuting the mature same-slot, 24-hour and seven-day late-risk features
+increased MAE by 0.577, 0.272 and 0.074 pp, respectively. The largest positive HRRR importance,
+for forecast mean temperature, was only 0.015 pp. XGBoost was therefore
+most sensitive to mature service history. These permutation results reflect predictive
+reliance rather than causal effects, and correlated predictors may prevent individual
+feature contributions from being cleanly separated.
+
+
+\subsection{Reliability and Operational Constraints}
+\label{sec:reliability}
+Aggregate calibration did not imply borough-period accuracy: the benchmark's
+gap was closer to zero than XGBoost's despite its higher MAE, while the GLM had
+the largest positive gap. Across four one-month-ahead development backtests,
+XGBoost exceeded the benchmark MAE by 0.30 pp in July and 0.99 pp in August,
+but was about 0.40 pp lower in both September and October. Its advantage was
+therefore not temporally uniform.
+
+Errors were largest where completed-request support was sparse. XGBoost's
+evaluation MAE was 10.195 pp for Staten Island (1,748 requests), versus
+2.471 pp elsewhere. Table~\ref{tab:support_mae} shows the same pattern across
+request-volume bands, with prediction error declining sharply as completed-request
+support increased.
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \renewcommand{\arraystretch}{1.08}
+    \begin{tabularx}{\textwidth}{@{}
+        >{\raggedright\arraybackslash}p{0.39\textwidth}
+        >{\centering\arraybackslash}p{0.28\textwidth}
+        >{\centering\arraybackslash}X@{}}
+        \toprule
+        \textbf{Requests per borough-period} &
+        \textbf{Evaluation WAV requests} &
+        \textbf{Weighted MAE (pp)} \\
+        \midrule
+        1--10   & 1,851  & 9.803 \\
+        11--50  & 15,513 & 4.402 \\
+        51--100 & 23,415 & 2.770 \\
+        $>$100  & 73,893 & 1.970 \\
+        \bottomrule
+    \end{tabularx}
+    \caption{XGBoost evaluation error by completed-request support.}
+    \label{tab:support_mae}
+\end{table}
+
+Therefore, request weighting makes the headline MAE more representative of high-volume
+periods but may mask substantially larger errors in sparse-support groups.
+
+Two retrospective screens illustrate the concentration--coverage trade-off. First,
+a fixed 10\% predicted late-share screen covered 6.09\% of requests and captured
+11.46\% of late trips. Second, a volume-aware ranking multiplied predicted late
+share by the expanding same-slot mean completed-request count; its top 10\% contained
+31.09\% of requests and 35.22\% of late trips. The risk-only screen concentrated
+risk more sharply but reached fewer late trips, whereas volume-aware ranking reached
+more late trips with only modest enrichment. Because the rules selected different
+shares of periods, the results show a trade-off rather than a capacity-matched policy
+comparison.
+
+\FloatBarrier
+
+\section{Recommendations}
+When review and response capacity is limited, operations and dispatch teams at HVFHS platforms should use
+forecasts, with analytics support, to prioritise borough-periods for review. Live platform data should
+then determine whether and how the platform responds. Alerts for sparse-support
+borough-periods should receive additional scrutiny and should not by themselves trigger an
+operational response. Therefore, we recommend two operational responses and a controlled pilot.
+
+\textbf{Offer targeted driver incentives to reinforce WAV coverage.}
+When the forecast prioritises a borough-period, the HVFHS platform's dispatch team should review
+outstanding WAV requests, available WAV-capable vehicles, cancellations and known disruptions.
+If live data show that available coverage cannot meet outstanding requests, the team should
+offer drivers eligible to serve WAV requests location- and time-specific incentives to accept
+WAV trips in that borough or reposition there during the four-hour period. The team should
+monitor coverage, end the offer when the shortfall clears and check that the intervention
+is not creating new service pressure elsewhere. If live data do not confirm a coverage problem,
+the team should record the alert without offering incentives or changing resources. This
+focuses operational attention and incentives on prioritised borough-periods, not platform-wide.
+
+\textbf{Prioritise recovery for outstanding WAV requests.}
+For each prioritised borough-period, the dispatch team should review outstanding WAV requests
+ahead of the usual order and check their live assignment status. The forecast prioritises
+review; it does not identify which individual request will be late or allocate a vehicle.
+
+If live data show that a request remains unassigned, loses an assigned vehicle or is affected
+by a known disruption, the team should confirm that it remains active, then re-offer it to
+drivers eligible to serve WAV requests or rematch it with an available WAV-capable vehicle.
+If ordinary matching cannot restore the trip, the team should follow a pre-approved backup
+WAV-service pathway and track the recovery until its outcome is recorded. Requests progressing
+normally should remain under usual dispatch. The forecast prioritises the borough-period, but
+live request status triggers recovery; a borough-wide coverage shortfall is not required.
+
+\textbf{Run a platform-specific pilot before wider rollout.}
+The platform's operations and analytics teams should rebuild the late-share forecast with the
+platform's own historical data and test both responses in a small pilot. This staged rollout is
+warranted because the current model pooled completed trips across platforms, achieved only a
+modest average gain over the history benchmark, varied in relative performance over time and
+produced much larger errors in sparse borough-periods, especially Staten Island.
+
+Before the pilot, the platform should define review and response capacity, alert routing,
+activation and stopping conditions, and team responsibilities. During the pilot, it should
+record alerts, actions and uptake; staff time and operating costs; service outcomes, including
+completed-trip lateness, cancellations and unserved requests; and spillovers to other boroughs
+or periods.
+
+After outcomes mature, the operations and analytics teams should compare XGBoost with the
+matured 24-hour history benchmark, compare the predicted late-share and volume-aware rankings
+under equal review capacity, and compare forecast-informed responses with usual manual review
+under equal review and response capacity. The platform should expand the responses only if
+prospective results show better WAV service outcomes at acceptable additional cost without
+material deterioration in sparse-support groups or elsewhere; otherwise, it should restrict,
+revise or stop them.
+
+\section{Conclusion}
+This report investigated whether borough-level late share for completed WAV-requested HVFHV
+trips could be forecast over the following four hours using only information available at issue
+time. Both learned models outperformed the matured 24-hour history benchmark in the November–December
+evaluation, with weighted XGBoost performing best, although its advantage was not temporally uniform
+and prediction errors were substantially larger in sparse-support borough-periods. These findings
+support evaluating forecasts as a tool to prioritise operational review rather than automate vehicle
+allocation. Finally, we recommend using forecast-prioritised borough-periods to guide reviews for targeted
+driver incentives and earlier recovery of outstanding WAV requests. Live platform data should determine whether
+either response is required. These responses should first be evaluated in a platform-specific controlled pilot before
+wider rollout.
+
+\clearpage
+
+% BEGIN REFERENCES SECTION
+\printbibliography
+
+\end{document}
