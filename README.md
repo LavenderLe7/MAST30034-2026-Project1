@@ -2,15 +2,6 @@
 
 > **MAST30034 Applied Data Science · Project 1: An End-to-End Data Science Project**
 
-## Problem Description
-
-Reliable wheelchair-accessible vehicle (WAV) service matters to passengers who
-rely on it. Using 2025 New York City high-volume for-hire vehicle (HVFHV) trip
-data, this project forecasts the share of completed WAV-requested trips in each
-pickup borough whose vehicle arrives more than 10 minutes after the requested
-pickup time, one four-hour period ahead. The forecast is an early signal for
-human operational review, not automatic vehicle allocation.
-
 ## Table of Contents
 
 - [Problem Description](#problem-description)
@@ -20,6 +11,15 @@ human operational review, not automatic vehicle allocation.
 - [Usage](#usage)
 - [Results](#results)
 - [Recommendations](#recommendations)
+
+## Problem Description
+
+Reliable wheelchair-accessible vehicle (WAV) service matters to passengers who
+rely on it. Using 2025 New York City high-volume for-hire vehicle (HVFHV) trip
+data, this project forecasts the share of completed WAV-requested trips in each
+pickup borough whose vehicle arrives more than 10 minutes after the requested
+pickup time, one four-hour period ahead. The forecast is an early signal for
+human operational review, not automatic vehicle allocation.
 
 ## Dataset
 
